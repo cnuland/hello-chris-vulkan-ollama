@@ -39,32 +39,32 @@ oc apply -k .k8s/vulkan
 ```
 Wait for the pod to become Ready:
 ```bash
-oc get pods -n gpt-oss -l app=ollama-gpt-oss-120b -w
+oc get pods -n gpt-oss -l app=ollama-gpt-oss-20b -w
 ```
 Get the external URL:
 ```bash
-oc get route -n gpt-oss ollama-gpt-oss-120b -o jsonpath='https://{.spec.host}\n'
+oc get route -n gpt-oss ollama-gpt-oss-20b -o jsonpath='https://{.spec.host}\n'
 ```
 
 ## Quick tests
 ```bash
 # Version endpoint
-curl -sS https://$(oc get route -n gpt-oss ollama-gpt-oss-120b -o jsonpath='{.spec.host}')/api/version
+curl -sS https://$(oc get route -n gpt-oss ollama-gpt-oss-20b -o jsonpath='{.spec.host}')/api/version
 
 # List models (appears after the first pull completes)
-curl -sS https://$(oc get route -n gpt-oss ollama-gpt-oss-120b -o jsonpath='{.spec.host}')/api/tags
+curl -sS https://$(oc get route -n gpt-oss ollama-gpt-oss-20b -o jsonpath='{.spec.host}')/api/tags
 
 # Generate (non‑streaming example)
-curl -sS -X POST https://$(oc get route -n gpt-oss ollama-gpt-oss-120b -o jsonpath='{.spec.host}')/api/generate \
+curl -sS -X POST https://$(oc get route -n gpt-oss ollama-gpt-oss-20b -o jsonpath='{.spec.host}')/api/generate \
   -H 'Content-Type: application/json' \
   -d '{"model":"gpt-oss:120b","prompt":"Say hello in one short sentence.","stream":false}'
 ```
 
 ## Changing the model
-The image defaults to `MODEL_NAME=gpt-oss:120b` and pulls it automatically on start (`OLLAMA_PULL_ON_START=1`). Change it at deploy time or patch later:
+The image defaults to `MODEL_NAME=gpt-oss:20b` and pulls it automatically on start (`OLLAMA_PULL_ON_START=1`). Change it at deploy time or patch later:
 ```bash
-# Patch to another model, e.g. 20B
-oc set env -n gpt-oss deploy/ollama-gpt-oss-120b MODEL_NAME=gpt-oss:20b
+# Patch to another model, e.g. 120B
+oc set env -n gpt-oss deploy/ollama-gpt-oss-120b MODEL_NAME=gpt-oss:120b
 oc rollout restart -n gpt-oss deploy/ollama-gpt-oss-120b
 ```
 
