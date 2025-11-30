@@ -29,7 +29,7 @@ ENV OLLAMA_HOST=0.0.0.0 \
     AMD_VULKAN_ICD=RADV \
     GGML_VK_VISIBLE_DEVICES=0 \
     # Default model can be overridden at runtime
-    MODEL_NAME=gpt-oss:20b \
+    MODEL_NAME=gpt-oss:120b \
     # Pull model on container start (set to 0 to disable)
     OLLAMA_PULL_ON_START=1
 
