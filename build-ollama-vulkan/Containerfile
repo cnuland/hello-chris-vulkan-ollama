@@ -1,0 +1,49 @@
+# Containerfile for Ollama with AMD Vulkan, tuned for large models by default
+# Base: Ubuntu 24.04 + newer Mesa (kisak-mesa PPA) + Ollama server
+# Notes:
+# - Uses Vulkan backend (RADV by default) on AMD iGPU/dGPU via /dev/dri
+# - MODEL_NAME is configurable at runtime (default gpt-oss:120b)
+# - Entry point starts the server and will optionally auto-pull MODEL_NAME
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Core tooling + add kisak-mesa PPA for newer RADV (Mesa 24.2+)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl jq bash coreutils procps software-properties-common gnupg \
+    && add-apt-repository -y ppa:kisak/kisak-mesa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    libvulkan1 mesa-vulkan-drivers vulkan-tools libdrm2 pciutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ollama server (static binary) directly
+# Upstream install script places the binary in /usr/local/bin/ollama
+RUN curl -fsSL https://ollama.com/install.sh | bash -s --
+
+# Runtime configuration
+ENV OLLAMA_HOST=0.0.0.0 \
+    OLLAMA_MODELS=/models \
+    OLLAMA_VULKAN=1 \
+    # Select RADV by default (works well on Strix Halo / consumer parts)
+    AMD_VULKAN_ICD=RADV \
+    GGML_VK_VISIBLE_DEVICES=0 \
+    # Default model can be overridden at runtime
+    MODEL_NAME=gpt-oss:120b \
+    # Pull model on container start (set to 0 to disable)
+    OLLAMA_PULL_ON_START=1
+
+# Create models dir with wide perms (OpenShift assigns a random UID)
+RUN mkdir -p /models && chmod 0777 /models
+
+# Copy entrypoint
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+EXPOSE 11434
+
+# Simple healthcheck against local API
+HEALTHCHECK --interval=30s --timeout=5s --retries=5 CMD curl -fsS http://127.0.0.1:11434/api/version || exit 1
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["serve"]

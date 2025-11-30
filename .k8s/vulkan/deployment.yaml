@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-gpt-oss-20b
+  namespace: gpt-oss
+  labels:
+    app: ollama-gpt-oss-20b
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama-gpt-oss-20b
+  template:
+    metadata:
+      labels:
+        app: ollama-gpt-oss-20b
+    spec:
+      imagePullSecrets:
+        - name: quay-pull
+      securityContext:
+        runAsUser: 1000730000
+        fsGroup: 1000730000
+      containers:
+        - name: ollama
+          image: quay.io/cnuland/vulkan-ollama:latest
+          imagePullPolicy: IfNotPresent
+          args: ["serve"]
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0"
+            - name: OLLAMA_VULKAN
+              value: "1"
+            - name: OLLAMA_MODELS
+              value: "/models"
+            - name: MODEL_NAME
+              value: "gpt-oss:20b"
+            - name: OLLAMA_PULL_ON_START
+              value: "1"
+            - name: HOME
+              value: "/tmp"
+            # Disable ROCm/HIP to force Vulkan backend
+            - name: HIP_VISIBLE_DEVICES
+              value: "-1"
+            - name: ROCR_VISIBLE_DEVICES
+              value: "-1"
+            - name: AMD_VULKAN_ICD
+              value: "RADV"
+            - name: GGML_VK_VISIBLE_DEVICES
+              value: "0"
+          ports:
+            - containerPort: 11434
+              name: http
+          volumeMounts:
+            - name: models
+              mountPath: /models
+          resources:
+            requests:
+              memory: 8Gi
+              amd.com/gpu: "1"
+            limits:
+              memory: 32Gi
+              amd.com/gpu: "1"
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /api/version
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models

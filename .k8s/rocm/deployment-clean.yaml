@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-gpt-oss-120b
+  namespace: gpt-oss
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-gpt-oss-120b
+  template:
+    metadata:
+      labels:
+        app: vllm-gpt-oss-120b
+    spec:
+      containers:
+      - name: vllm
+        image: quay.io/cnuland/vllm-gfx1151:rocm71_gfx115x
+        imagePullPolicy: IfNotPresent
+        command:
+        - python3
+        - -m
+        - vllm.entrypoints.openai.api_server
+        args:
+        - --model=unsloth/gpt-oss-20b-BF16
+        - --host=0.0.0.0
+        - --port=8000
+        - --tensor-parallel-size=1
+        - --max-model-len=4096
+        - --max-model-len=16384
+        - --gpu-memory-utilization=0.85
+        - --enforce-eager
+        - --disable-custom-all-reduce
+        - --trust-remote-code
+        env:
+        - name: HOME
+          value: /tmp/vllm-home
+        - name: HF_HOME
+          value: /model-cache
+        - name: VLLM_USE_MODELSCOPE
+          value: "false"
+        - name: ROCM_PATH
+          value: /opt/rocm
+        - name: VLLM_USE_V1
+          value: "1"
+        - name: VLLM_TARGET_DEVICE
+          value: rocm
+        - name: VLLM_ROCM_USE_AITER
+          value: "0"
+        - name: VLLM_ROCM_CUSTOM_PAGED_ATTN
+          value: "0"
+        - name: VLLM_USE_TRITON_FLASH_ATTN
+          value: "0"
+        - name: NCCL_P2P_DISABLE
+          value: "1"
+        - name: AMD_SERIALIZE_KERNEL
+          value: "3"
+        - name: HIP_LAUNCH_BLOCKING
+          value: "1"
+        - name: VLLM_LOGGING_LEVEL
+          value: DEBUG
+        - name: HUGGING_FACE_HUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: HUGGING_FACE_HUB_TOKEN
+              name: hf-token
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: HF_TOKEN
+              name: hf-token
+        - name: PYTHONNOUSERSITE
+          value: "1"
+        - name: PYTHONPATH
+          value: /usr/local/lib/python3.12/dist-packages
+        - name: TORCHINDUCTOR_DISABLE
+          value: "1"
+        - name: TORCH_LOGS
+          value: +dynamo
+        - name: HSA_ENABLE_SDMA
+          value: "0"
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        resources:
+          limits:
+            amd.com/gpu: "1"
+            memory: 32Gi
+          requests:
+            amd.com/gpu: "1"
+            memory: 16Gi
+        volumeMounts:
+        - mountPath: /model-cache
+          name: model-cache
+        - mountPath: /dev/shm
+          name: shm
+        workingDir: /
+      imagePullSecrets:
+      - name: quay-pull
+      restartPolicy: Always
+      volumes:
+      - emptyDir:
+          sizeLimit: 200Gi
+        name: model-cache
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Gi
+        name: shm

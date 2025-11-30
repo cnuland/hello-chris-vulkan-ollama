@@ -1,0 +1,13 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ollama-gpt-oss-20b
+  namespace: gpt-oss
+spec:
+  to:
+    kind: Service
+    name: ollama-gpt-oss-20b
+  port:
+    targetPort: http
+  tls:
+    termination: edge

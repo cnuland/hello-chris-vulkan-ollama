@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-gpt-oss-120b
+  namespace: gpt-oss
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-gpt-oss-120b
+  template:
+    metadata:
+      labels:
+        app: vllm-gpt-oss-120b
+    spec:
+      containers:
+      - name: vllm
+        # Latest nightly with AITER MoE support
+        image: rocm/vllm-dev:nightly_main_20251117
+        imagePullPolicy: Always
+        command:
+        - python3
+        - -m
+        - vllm.entrypoints.openai.api_server
+        args:
+        # RedHatAI quantized gpt-oss-120b model
+        - --model=RedHatAI/gpt-oss-120b
+        - --host=0.0.0.0
+        - --port=8000
+        - --tensor-parallel-size=1
+        # Reduced context length to help with memory constraints
+        - --max-model-len=8192
+        # Lower GPU memory utilization for safety
+        - --gpu-memory-utilization=0.90
+        - --enforce-eager
+        - --disable-custom-all-reduce
+        - --trust-remote-code
+        # Enable quantization - the model uses MXFP4
+        # Note: MXFP4 may fall back to different quantization on consumer GPUs
+        env:
+        # Core Settings
+        - name: HOME
+          value: /tmp/vllm-home
+        - name: HF_HOME
+          value: /model-cache
+        - name: VLLM_USE_V1
+          value: "1"
+        - name: VLLM_LOGGING_LEVEL
+          value: INFO
+        
+        # ROCm Settings
+        - name: ROCM_PATH
+          value: /opt/rocm
+        - name: VLLM_TARGET_DEVICE
+          value: rocm
+        
+        # Enable AITER for MoE support (gpt-oss-120b is MoE)
+        - name: VLLM_ROCM_USE_AITER
+          value: "1"
+        - name: VLLM_ROCM_USE_AITER_MOE
+          value: "1"
+        - name: VLLM_ROCM_USE_AITER_LINEAR
+          value: "1"
+        
+        # gfx1151 -> gfx1100 fallback for kernel compatibility
+        - name: HSA_OVERRIDE_GFX_VERSION
+          value: "11.0.0"
+        
+        # AMD GPU Tuning
+        - name: NCCL_P2P_DISABLE
+          value: "1"
+        - name: AMD_SERIALIZE_KERNEL
+          value: "3"
+        - name: HSA_ENABLE_SDMA
+          value: "0"
+        - name: HIP_LAUNCH_BLOCKING
+          value: "1"
+        
+        # Disable features that may cause issues on consumer GPUs
+        - name: VLLM_USE_TRITON_FLASH_ATTN
+          value: "0"
+        - name: VLLM_ROCM_CUSTOM_PAGED_ATTN
+          value: "0"
+        
+        # HF Authentication
+        - name: HUGGING_FACE_HUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-token
+              key: HUGGING_FACE_HUB_TOKEN
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-token
+              key: HF_TOKEN
+        
+        # Python Settings
+        - name: PYTHONNOUSERSITE
+          value: "1"
+        
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            memory: "32Gi"
+            amd.com/gpu: "1"
+          limits:
+            memory: "64Gi"
+            amd.com/gpu: "1"
+        volumeMounts:
+        - name: model-cache
+          mountPath: /model-cache
+        - name: shm
+          mountPath: /dev/shm
+        workingDir: /
+      
+      imagePullSecrets:
+      - name: quay-pull
+      
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60
+      
+      volumes:
+      - name: model-cache
+        emptyDir:
+          sizeLimit: 300Gi
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 32Gi

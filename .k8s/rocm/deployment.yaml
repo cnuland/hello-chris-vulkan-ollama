@@ -1,0 +1,150 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "35"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"name":"vllm-gpt-oss-120b","namespace":"gpt-oss"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"vllm-gpt-oss-120b"}},"template":{"metadata":{"labels":{"app":"vllm-gpt-oss-120b"}},"spec":{"containers":[{"args":["--model=RedHatAI/gpt-oss-20b","--host=0.0.0.0","--port=8000","--tensor-parallel-size=1","--max-model-len=4096","--dtype=bfloat16","--gpu-memory-utilization=0.85","--enforce-eager","--disable-custom-all-reduce","--trust-remote-code"],"command":["python3","-m","vllm.entrypoints.openai.api_server"],"env":[{"name":"HOME","value":"/tmp/vllm-home"},{"name":"HF_HOME","value":"/model-cache"},{"name":"VLLM_USE_MODELSCOPE","value":"false"},{"name":"ROCM_PATH","value":"/opt/rocm"},{"name":"VLLM_USE_V1","value":"1"},{"name":"VLLM_TARGET_DEVICE","value":"rocm"},{"name":"VLLM_ROCM_USE_AITER","value":"0"},{"name":"VLLM_ROCM_CUSTOM_PAGED_ATTN","value":"0"},{"name":"VLLM_USE_TRITON_FLASH_ATTN","value":"0"},{"name":"NCCL_P2P_DISABLE","value":"1"},{"name":"AMD_SERIALIZE_KERNEL","value":"3"},{"name":"HIP_LAUNCH_BLOCKING","value":"1"},{"name":"VLLM_LOGGING_LEVEL","value":"DEBUG"},{"name":"HUGGING_FACE_HUB_TOKEN","valueFrom":{"secretKeyRef":{"key":"HUGGING_FACE_HUB_TOKEN","name":"hf-token"}}},{"name":"HF_TOKEN","valueFrom":{"secretKeyRef":{"key":"HF_TOKEN","name":"hf-token"}}},{"name":"PYTHONNOUSERSITE","value":"1"},{"name":"PYTHONPATH","value":"/usr/local/lib/python3.12/dist-packages"}],"image":"quay.io/cnuland/vllm-gfx1151:rocm71_gfx115x","name":"vllm","ports":[{"containerPort":8000,"name":"http","protocol":"TCP"}],"resources":{"limits":{"amd.com/gpu":1,"memory":"32Gi"},"requests":{"amd.com/gpu":1,"memory":"16Gi"}},"volumeMounts":[{"mountPath":"/model-cache","name":"model-cache"},{"mountPath":"/dev/shm","name":"shm"}],"workingDir":"/"}],"volumes":[{"emptyDir":{"sizeLimit":"200Gi"},"name":"model-cache"},{"emptyDir":{"medium":"Memory","sizeLimit":"16Gi"},"name":"shm"}]}}}}
+  creationTimestamp: "2025-11-02T03:06:14Z"
+  generation: 37
+  name: vllm-gpt-oss-120b
+  namespace: gpt-oss
+  resourceVersion: "10442729"
+  uid: b108990c-df0a-4080-b1e5-08c827680d44
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: vllm-gpt-oss-120b
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2025-11-02T13:41:48-05:00"
+      creationTimestamp: null
+      labels:
+        app: vllm-gpt-oss-120b
+    spec:
+      containers:
+      - args:
+        - --model=unsloth/gpt-oss-20b-BF16
+        - --host=0.0.0.0
+        - --port=8000
+        - --tensor-parallel-size=1
+        - --max-model-len=4096
+        - --max-model-len=16384
+        - --gpu-memory-utilization=0.85
+        - --enforce-eager
+        - --disable-custom-all-reduce
+        - --trust-remote-code
+        command:
+        - python3
+        - -m
+        - vllm.entrypoints.openai.api_server
+        env:
+        - name: HOME
+          value: /tmp/vllm-home
+        - name: HF_HOME
+          value: /model-cache
+        - name: VLLM_USE_MODELSCOPE
+          value: "false"
+        - name: ROCM_PATH
+          value: /opt/rocm
+        - name: VLLM_USE_V1
+          value: "1"
+        - name: VLLM_TARGET_DEVICE
+          value: rocm
+        - name: VLLM_ROCM_USE_AITER
+          value: "0"
+        - name: VLLM_ROCM_CUSTOM_PAGED_ATTN
+          value: "0"
+        - name: VLLM_USE_TRITON_FLASH_ATTN
+          value: "0"
+        - name: NCCL_P2P_DISABLE
+          value: "1"
+        - name: AMD_SERIALIZE_KERNEL
+          value: "3"
+        - name: HIP_LAUNCH_BLOCKING
+          value: "1"
+        - name: VLLM_LOGGING_LEVEL
+          value: DEBUG
+        - name: HUGGING_FACE_HUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: HUGGING_FACE_HUB_TOKEN
+              name: hf-token
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: HF_TOKEN
+              name: hf-token
+        - name: PYTHONNOUSERSITE
+          value: "1"
+        - name: PYTHONPATH
+          value: /usr/local/lib/python3.12/dist-packages
+        - name: TORCHINDUCTOR_DISABLE
+          value: "1"
+        - name: TORCH_LOGS
+          value: +dynamo
+        - name: HSA_ENABLE_SDMA
+          value: "0"
+        image: quay.io/cnuland/vllm-gfx1151:rocm71_gfx115x
+        imagePullPolicy: IfNotPresent
+        name: vllm
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        resources:
+          limits:
+            amd.com/gpu: "1"
+            memory: 32Gi
+          requests:
+            amd.com/gpu: "1"
+            memory: 16Gi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /model-cache
+          name: model-cache
+        - mountPath: /dev/shm
+          name: shm
+        workingDir: /
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - emptyDir:
+          sizeLimit: 200Gi
+        name: model-cache
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Gi
+        name: shm
+status:
+  availableReplicas: 1
+  conditions:
+  - lastTransitionTime: "2025-11-27T13:37:09Z"
+    lastUpdateTime: "2025-11-27T13:37:09Z"
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  - lastTransitionTime: "2025-11-27T13:29:49Z"
+    lastUpdateTime: "2025-11-27T13:37:09Z"
+    message: ReplicaSet "vllm-gpt-oss-120b-654d6695d" has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: Progressing
+  observedGeneration: 37
+  readyReplicas: 1
+  replicas: 1
+  updatedReplicas: 1

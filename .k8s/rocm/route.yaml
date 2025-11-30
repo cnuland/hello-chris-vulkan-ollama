@@ -1,0 +1,34 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"route.openshift.io/v1","kind":"Route","metadata":{"annotations":{},"name":"vllm-gpt-oss-120b","namespace":"gpt-oss"},"spec":{"port":{"targetPort":"http"},"tls":{"insecureEdgeTerminationPolicy":"Redirect","termination":"edge"},"to":{"kind":"Service","name":"vllm-gpt-oss-120b"}}}
+    openshift.io/host.generated: "true"
+  creationTimestamp: "2025-11-02T01:19:10Z"
+  name: vllm-gpt-oss-120b
+  namespace: gpt-oss
+  resourceVersion: "89426"
+  uid: 37717ad6-5791-4ac0-900b-bc73b3716066
+spec:
+  host: vllm-gpt-oss-120b-gpt-oss.apps.ironman.cjlabs.dev
+  port:
+    targetPort: http
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: edge
+  to:
+    kind: Service
+    name: vllm-gpt-oss-120b
+    weight: 100
+  wildcardPolicy: None
+status:
+  ingress:
+  - conditions:
+    - lastTransitionTime: "2025-11-02T01:19:10Z"
+      status: "True"
+      type: Admitted
+    host: vllm-gpt-oss-120b-gpt-oss.apps.ironman.cjlabs.dev
+    routerCanonicalHostname: router-default.apps.ironman.cjlabs.dev
+    routerName: default
+    wildcardPolicy: None
