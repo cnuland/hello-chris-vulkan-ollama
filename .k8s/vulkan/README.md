@@ -12,9 +12,12 @@ This directory contains a minimal Kustomize stack to deploy an Ollama server usi
 
 ## Performance (AMD Radeon 8060S / Strix Halo)
 - **Prefill:** ~300-450 tok/s
-- **Decode:** ~35 tok/s
+- **Decode:** ~36-38 tok/s
 - **VRAM usage:** ~61 GiB (MXFP4 quantization)
-- **Initial load time:** ~80 seconds
+- **Initial load time:** ~7-8 minutes (Vulkan shader compilation on first request)
+- **Subsequent requests:** <1 second (model stays loaded for 30 minutes)
+
+**Note:** The first request after pod startup triggers Vulkan shader compilation which takes several minutes. Once loaded, the model stays in memory and responds quickly.
 
 ## References (source material used)
 - AMD OpenAI Day‑0 guidance (Vulkan + consumer Radeon/Ryzen AI):
@@ -83,6 +86,14 @@ oc rollout restart -n gpt-oss deploy/ollama-gpt-oss-120b
 - GPU scheduling: `amd.com/gpu: 1` ensures the pod lands on the AMD GPU node and `/dev/dri` is available to Vulkan.
 - Security: runs under OpenShift's restricted SCC; the image creates `/models` with 0777 so no explicit `fsGroup` is required.
 
+## Performance tuning environment variables
+- `OLLAMA_KEEP_ALIVE=30m` - Keep model loaded for 30 minutes between requests
+- `OLLAMA_LOAD_TIMEOUT=3m` - Allow 3 minutes for model loading
+- `OLLAMA_RUNNER_START_TIMEOUT=10m` - Allow 10 minutes for Vulkan shader compilation
+- `OLLAMA_CONTEXT_LENGTH=2048` - Reduced context for faster initialization
+- `OLLAMA_NUM_PARALLEL=1` - Single request at a time (optimized for single user)
+- `OLLAMA_FLASH_ATTENTION=1` - Enable flash attention for better performance
+
 ## Model storage
 The deployment uses a 250Gi NFS PVC (`ollama-models`) for persistent model storage at `/models`. This is already configured in `pvc.yaml` and mounted in the deployment.
 
@@ -91,3 +102,5 @@ The deployment uses a 250Gi NFS PVC (`ollama-models`) for persistent model stora
 - GPU not available / Pending: ensure no other pod is currently reserving `amd.com/gpu: 1` and the AMD device plugin is healthy.
 - System RAM OOMKilled: keep `/models` disk‑backed (not tmpfs), and consider lowering BIOS‑reserved VRAM from 96GiB to ~88GiB to give Linux more RAM.
 - Slow first request: the entrypoint pre‑pull is asynchronous via the local API; check `/api/tags` until the model appears.
+- **First request times out (504):** The 120B model requires ~7-8 minutes for Vulkan shader compilation on first load. Ensure route timeout is set to 300s+ (`haproxy.router.openshift.io/timeout=300s`).
+- **Subsequent requests are slow:** Check if the model was unloaded (`curl /api/ps`). Keep-alive is set to 30 minutes by default.

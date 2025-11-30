@@ -14,10 +14,12 @@ This project provides container images and Kubernetes manifests to deploy Ollama
 
 ## Performance (AMD Radeon 8060S / Strix Halo)
 
-| Model | Prefill | Decode | VRAM Usage |
-|-------|---------|--------|------------|
-| GPT-OSS 120B (MXFP4) | ~300-450 tok/s | ~35 tok/s | ~61 GiB |
-| GPT-OSS 20B (MXFP4) | ~500 tok/s | ~58 tok/s | ~13 GiB |
+| Model | Prefill | Decode | VRAM Usage | Initial Load |
+|-------|---------|--------|------------|---------------|
+| GPT-OSS 120B (MXFP4) | ~300-450 tok/s | ~36-38 tok/s | ~61 GiB | ~7-8 min |
+| GPT-OSS 20B (MXFP4) | ~500 tok/s | ~58 tok/s | ~13 GiB | ~10 sec |
+
+**Note:** The 120B model requires ~7-8 minutes for Vulkan shader compilation on the first request after pod startup. Subsequent requests are fast (<1 second) while the model remains loaded (30 minute keep-alive).
 
 ## Project Structure
 
@@ -103,6 +105,10 @@ podman push quay.io/cnuland/vulkan-ollama:latest
 | `OLLAMA_PULL_ON_START` | `1` | Auto-pull model on container start |
 | `AMD_VULKAN_ICD` | `RADV` | Vulkan driver (RADV or AMDVLK) |
 | `GGML_VK_VISIBLE_DEVICES` | `0` | GPU device index |
+| `OLLAMA_KEEP_ALIVE` | `30m` | Keep model loaded between requests |
+| `OLLAMA_RUNNER_START_TIMEOUT` | `10m` | Timeout for Vulkan shader compilation |
+| `OLLAMA_CONTEXT_LENGTH` | `2048` | Context window size |
+| `OLLAMA_FLASH_ATTENTION` | `1` | Enable flash attention |
 
 ## Resource Requirements
 
