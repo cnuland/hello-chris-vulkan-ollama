@@ -1,11 +1,11 @@
-# Vulkan Ollama Deployment (GPT‑OSS 120B) on OpenShift
+# Vulkan Ollama Deployment (GPT‑OSS 20B) on OpenShift
 
-This directory contains a minimal Kustomize stack to deploy an Ollama server using the Vulkan backend on an AMD Strix Halo (gfx1151) system. It is pre‑tuned to run `gpt-oss:120b` by default, but the model is configurable via environment variable.
+This directory contains a minimal Kustomize stack to deploy an Ollama server using the Vulkan backend on an AMD Strix Halo (gfx1151) system. It is pre‑tuned to run `gpt-oss:20b` by default, but the model is configurable via environment variable.
 
 ## What’s included
 - Deployment using the custom image: `quay.io/cnuland/vulkan-ollama:latest`
 - Vulkan backend enabled via env (`OLLAMA_VULKAN=1`)
-- Disk‑backed model store at `/models` (EmptyDir with size limit 200Gi)
+- Disk‑backed model store at `/models` (EmptyDir with size limit 100Gi)
 - Service (11434/TCP) and an OpenShift Route (edge TLS)
 - Conservative pod RAM: `requests: 2Gi`, `limits: 12Gi`
 - GPU scheduling: `amd.com/gpu: 1` to ensure /dev/dri is available
