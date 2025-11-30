@@ -8,6 +8,7 @@ This project provides container images and Kubernetes manifests to deploy Ollama
 
 **Key Features:**
 - Vulkan backend for AMD consumer GPUs (no ROCm required)
+- **Warmup sidecar** that pre-loads model and compiles shaders on startup
 - Optimized for shared memory iGPU configurations
 - Pre-configured for GPT-OSS 120B model
 - OpenShift/Kubernetes ready with Kustomize
@@ -19,7 +20,7 @@ This project provides container images and Kubernetes manifests to deploy Ollama
 | GPT-OSS 120B (MXFP4) | ~300-450 tok/s | ~36-38 tok/s | ~61 GiB | ~7-8 min |
 | GPT-OSS 20B (MXFP4) | ~500 tok/s | ~58 tok/s | ~13 GiB | ~10 sec |
 
-**Note:** The 120B model requires ~7-8 minutes for Vulkan shader compilation on the first request after pod startup. Subsequent requests are fast (<1 second) while the model remains loaded (30 minute keep-alive).
+**Note:** The 120B model requires ~7-8 minutes for Vulkan shader compilation. The warmup sidecar triggers this automatically on pod startup, so subsequent user requests are fast (<1 second) while the model remains loaded (30 minute keep-alive).
 
 ## Project Structure
 
@@ -29,9 +30,9 @@ This project provides container images and Kubernetes manifests to deploy Ollama
 │   └── docker-entrypoint.sh # Startup script with auto model pull
 ├── .k8s/
 │   ├── vulkan/              # Vulkan backend deployment (recommended)
-│   │   ├── deployment.yaml  # Ollama pod with GPU resources
+│   │   ├── deployment.yaml  # Ollama pod with warmup sidecar & GPU resources
 │   │   ├── service.yaml     # ClusterIP service
-│   │   ├── route.yaml       # OpenShift route (edge TLS)
+│   │   ├── route.yaml       # OpenShift route (edge TLS, 300s timeout)
 │   │   ├── pvc.yaml         # Model storage (250Gi NFS)
 │   │   └── kustomization.yaml
 │   └── rocm/                # ROCm backend deployment (alternative)
@@ -106,7 +107,8 @@ podman push quay.io/cnuland/vulkan-ollama:latest
 | `AMD_VULKAN_ICD` | `RADV` | Vulkan driver (RADV or AMDVLK) |
 | `GGML_VK_VISIBLE_DEVICES` | `0` | GPU device index |
 | `OLLAMA_KEEP_ALIVE` | `30m` | Keep model loaded between requests |
-| `OLLAMA_RUNNER_START_TIMEOUT` | `10m` | Timeout for Vulkan shader compilation |
+| `OLLAMA_LOAD_TIMEOUT` | `20m` | Timeout for model loading (shader compilation) |
+| `OLLAMA_RUNNER_START_TIMEOUT` | `20m` | Timeout for runner startup |
 | `OLLAMA_CONTEXT_LENGTH` | `2048` | Context window size |
 | `OLLAMA_FLASH_ATTENTION` | `1` | Enable flash attention |
 
@@ -116,7 +118,7 @@ podman push quay.io/cnuland/vulkan-ollama:latest
 - **GPU VRAM:** ~60 GiB
 - **CPU RAM:** ~1.1 GiB (overflow layers)
 - **Disk:** ~65 GiB (model storage)
-- **Pod limits:** 4Gi request / 16Gi limit
+- **Pod limits:** 8Gi request / 24Gi limit
 
 ### GPT-OSS 20B
 - **GPU VRAM:** ~13 GiB

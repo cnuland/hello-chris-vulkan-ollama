@@ -3,6 +3,9 @@ kind: Route
 metadata:
   name: ollama-gpt-oss-120b
   namespace: gpt-oss
+  annotations:
+    # Extended timeout for Vulkan shader compilation (~7-8 minutes)
+    haproxy.router.openshift.io/timeout: 300s
 spec:
   to:
     kind: Service

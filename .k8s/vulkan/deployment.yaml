@@ -21,6 +21,29 @@ spec:
         runAsUser: 1000730000
         fsGroup: 1000730000
       containers:
+        # Warmup sidecar - triggers model loading and Vulkan shader compilation on startup
+        - name: warmup
+          image: curlimages/curl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for Ollama to be ready..."
+              until curl -sf http://localhost:11434/api/version >/dev/null 2>&1; do
+                echo "Ollama not ready yet, waiting..."
+                sleep 5
+              done
+              echo "Ollama is ready, triggering model warmup..."
+              curl -sS -X POST http://localhost:11434/api/generate \
+                -H 'Content-Type: application/json' \
+                -d '{"model":"gpt-oss:120b","prompt":"Hello","stream":false}' &
+              echo "Warmup request sent, model loading in background"
+              # Keep container running and periodically check model status
+              while true; do
+                sleep 300
+                curl -sS http://localhost:11434/api/tags >/dev/null 2>&1 || true
+              done
+        # Main Ollama container
         - name: ollama
           image: quay.io/cnuland/vulkan-ollama:latest
           imagePullPolicy: IfNotPresent
@@ -50,20 +73,18 @@ spec:
             # Keep model loaded for 30 minutes
             - name: OLLAMA_KEEP_ALIVE
               value: "30m"
-            # Allow 3 minutes for model loading
+            # Allow 20 minutes for model loading (Vulkan shader compilation)
             - name: OLLAMA_LOAD_TIMEOUT
-              value: "3m"
+              value: "20m"
+            # Allow 20 minutes for runner start (Vulkan shader compilation)
+            - name: OLLAMA_RUNNER_START_TIMEOUT
+              value: "20m"
             # Performance tuning for MoE models
             - name: OLLAMA_NUM_PARALLEL
               value: "1"
-            - name: OLLAMA_FLASH_ATTENTION
-              value: "1"
-            # Reduce context to speed up inference  
+            # Reduce context to speed up inference
             - name: OLLAMA_CONTEXT_LENGTH
               value: "2048"
-            # Increase runner start timeout
-            - name: OLLAMA_RUNNER_START_TIMEOUT
-              value: "10m"
           ports:
             - containerPort: 11434
               name: http
@@ -72,10 +93,10 @@ spec:
               mountPath: /models
           resources:
             requests:
-              memory: 4Gi
+              memory: 8Gi
               amd.com/gpu: "1"
             limits:
-              memory: 16Gi
+              memory: 24Gi
               amd.com/gpu: "1"
           readinessProbe:
             httpGet:
