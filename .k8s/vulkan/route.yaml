@@ -1,12 +1,12 @@
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: ollama-gpt-oss-20b
+  name: ollama-gpt-oss-120b
   namespace: gpt-oss
 spec:
   to:
     kind: Service
-    name: ollama-gpt-oss-20b
+    name: ollama-gpt-oss-120b
   port:
     targetPort: http
   tls:

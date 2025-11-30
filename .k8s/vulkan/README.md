@@ -1,14 +1,20 @@
-# Vulkan Ollama Deployment (GPT‑OSS 20B) on OpenShift
+# Vulkan Ollama Deployment (GPT‑OSS 120B) on OpenShift
 
-This directory contains a minimal Kustomize stack to deploy an Ollama server using the Vulkan backend on an AMD Strix Halo (gfx1151) system. It is pre‑tuned to run `gpt-oss:20b` by default, but the model is configurable via environment variable.
+This directory contains a minimal Kustomize stack to deploy an Ollama server using the Vulkan backend on an AMD Strix Halo (gfx1151) system. It is pre‑tuned to run `gpt-oss:120b` by default, but the model is configurable via environment variable.
 
-## What’s included
+## What's included
 - Deployment using the custom image: `quay.io/cnuland/vulkan-ollama:latest`
 - Vulkan backend enabled via env (`OLLAMA_VULKAN=1`)
-- Disk‑backed model store at `/models` (EmptyDir with size limit 100Gi)
+- Disk‑backed model store at `/models` (PVC with 250Gi)
 - Service (11434/TCP) and an OpenShift Route (edge TLS)
-- Conservative pod RAM: `requests: 2Gi`, `limits: 12Gi`
+- Pod RAM: `requests: 4Gi`, `limits: 16Gi` (120B model requires ~1.1Gi CPU RAM for overflow)
 - GPU scheduling: `amd.com/gpu: 1` to ensure /dev/dri is available
+
+## Performance (AMD Radeon 8060S / Strix Halo)
+- **Prefill:** ~300-450 tok/s
+- **Decode:** ~35 tok/s
+- **VRAM usage:** ~61 GiB (MXFP4 quantization)
+- **Initial load time:** ~80 seconds
 
 ## References (source material used)
 - AMD OpenAI Day‑0 guidance (Vulkan + consumer Radeon/Ryzen AI):
@@ -39,32 +45,32 @@ oc apply -k .k8s/vulkan
 ```
 Wait for the pod to become Ready:
 ```bash
-oc get pods -n gpt-oss -l app=ollama-gpt-oss-20b -w
+oc get pods -n gpt-oss -l app=ollama-gpt-oss-120b -w
 ```
 Get the external URL:
 ```bash
-oc get route -n gpt-oss ollama-gpt-oss-20b -o jsonpath='https://{.spec.host}\n'
+oc get route -n gpt-oss ollama-gpt-oss-120b -o jsonpath='https://{.spec.host}\n'
 ```
 
 ## Quick tests
 ```bash
 # Version endpoint
-curl -sS https://$(oc get route -n gpt-oss ollama-gpt-oss-20b -o jsonpath='{.spec.host}')/api/version
+curl -sS https://$(oc get route -n gpt-oss ollama-gpt-oss-120b -o jsonpath='{.spec.host}')/api/version
 
 # List models (appears after the first pull completes)
-curl -sS https://$(oc get route -n gpt-oss ollama-gpt-oss-20b -o jsonpath='{.spec.host}')/api/tags
+curl -sS https://$(oc get route -n gpt-oss ollama-gpt-oss-120b -o jsonpath='{.spec.host}')/api/tags
 
 # Generate (non‑streaming example)
-curl -sS -X POST https://$(oc get route -n gpt-oss ollama-gpt-oss-20b -o jsonpath='{.spec.host}')/api/generate \
+curl -sS -X POST https://$(oc get route -n gpt-oss ollama-gpt-oss-120b -o jsonpath='{.spec.host}')/api/generate \
   -H 'Content-Type: application/json' \
   -d '{"model":"gpt-oss:120b","prompt":"Say hello in one short sentence.","stream":false}'
 ```
 
 ## Changing the model
-The image defaults to `MODEL_NAME=gpt-oss:20b` and pulls it automatically on start (`OLLAMA_PULL_ON_START=1`). Change it at deploy time or patch later:
+The image defaults to `MODEL_NAME=gpt-oss:120b` and pulls it automatically on start (`OLLAMA_PULL_ON_START=1`). Change it at deploy time or patch later:
 ```bash
-# Patch to another model, e.g. 120B
-oc set env -n gpt-oss deploy/ollama-gpt-oss-120b MODEL_NAME=gpt-oss:120b
+# Patch to another model, e.g. 20B for faster inference
+oc set env -n gpt-oss deploy/ollama-gpt-oss-120b MODEL_NAME=gpt-oss:20b
 oc rollout restart -n gpt-oss deploy/ollama-gpt-oss-120b
 ```
 
@@ -72,32 +78,13 @@ oc rollout restart -n gpt-oss deploy/ollama-gpt-oss-120b
 - Vulkan backend: `OLLAMA_VULKAN=1` enables Vulkan in Ollama; this path is recommended by AMD for consumer Radeon/iGPU (Strix Halo) and can outperform HIP in some inference workloads.
 - Vulkan ICD: Image defaults to RADV (`AMD_VULKAN_ICD=RADV`). To try AMDVLK, set `AMD_VULKAN_ICD=AMDVLK` (ensure AMDVLK is present on the host if required by your environment).
 - Device selection: `GGML_VK_VISIBLE_DEVICES=0` is set in the image so device 0 is used by default.
-- Pod memory: `requests: 2Gi`, `limits: 12Gi` is enough for downloads, checksums and runtime; keep `/models` on disk to avoid tmpfs RAM spikes.
-- Model storage: `/models` uses disk‑backed EmptyDir with `sizeLimit: 200Gi`. For persistence across restarts or node drains, replace with a PVC.
+- Pod memory: `requests: 4Gi`, `limits: 16Gi` provides headroom for the 120B model which offloads ~1.1Gi to CPU RAM.
+- Model storage: `/models` uses a 250Gi NFS PVC for persistence across restarts and node drains.
 - GPU scheduling: `amd.com/gpu: 1` ensures the pod lands on the AMD GPU node and `/dev/dri` is available to Vulkan.
-- Security: runs under OpenShift’s restricted SCC; the image creates `/models` with 0777 so no explicit `fsGroup` is required.
+- Security: runs under OpenShift's restricted SCC; the image creates `/models` with 0777 so no explicit `fsGroup` is required.
 
-## Using a PVC for persistent models (optional)
-Create a PVC and patch the deployment to mount it at `/models`:
-```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: ollama-models
-  namespace: gpt-oss
-spec:
-  accessModes: [ReadWriteOnce]
-  resources:
-    requests:
-      storage: 250Gi
-```
-Patch the Deployment:
-```bash
-oc patch -n gpt-oss deploy/ollama-gpt-oss-120b --type=json -p='[
-  {"op":"remove","path":"/spec/template/spec/volumes/0"},
-  {"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"models","persistentVolumeClaim":{"claimName":"ollama-models"}}}
-]'
-```
+## Model storage
+The deployment uses a 250Gi NFS PVC (`ollama-models`) for persistent model storage at `/models`. This is already configured in `pvc.yaml` and mounted in the deployment.
 
 ## Troubleshooting
 - `ContainerCreating` for a long time: check image pull permissions and the `quay-pull` secret.

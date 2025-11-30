@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ollama-gpt-oss-20b
+  name: ollama-gpt-oss-120b
   namespace: gpt-oss
   labels:
-    app: ollama-gpt-oss-20b
+    app: ollama-gpt-oss-120b
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ollama-gpt-oss-20b
+      app: ollama-gpt-oss-120b
   template:
     metadata:
       labels:
-        app: ollama-gpt-oss-20b
+        app: ollama-gpt-oss-120b
     spec:
       imagePullSecrets:
         - name: quay-pull
@@ -33,7 +33,7 @@ spec:
             - name: OLLAMA_MODELS
               value: "/models"
             - name: MODEL_NAME
-              value: "gpt-oss:20b"
+              value: "gpt-oss:120b"
             - name: OLLAMA_PULL_ON_START
               value: "1"
             - name: HOME
@@ -55,10 +55,10 @@ spec:
               mountPath: /models
           resources:
             requests:
-              memory: 8Gi
+              memory: 4Gi
               amd.com/gpu: "1"
             limits:
-              memory: 32Gi
+              memory: 16Gi
               amd.com/gpu: "1"
           readinessProbe:
             httpGet:
