@@ -4,33 +4,43 @@ Run large language models (GPT-OSS 120B) on AMD integrated GPUs using Ollama wit
 
 ## Overview
 
-This project provides container images and Kubernetes manifests to deploy Ollama with Vulkan acceleration on AMD Strix Halo (gfx1151) and similar AMD iGPUs. It's optimized for the OpenAI GPT-OSS models using MXFP4 quantization.
+This project provides container images, Kubernetes manifests, and a chat frontend to deploy Ollama with Vulkan acceleration on AMD Strix Halo (gfx1151) and similar AMD iGPUs. It's optimized for the OpenAI GPT-OSS models using MXFP4 quantization.
 
 **Key Features:**
 - Vulkan backend for AMD consumer GPUs (no ROCm required)
 - **Warmup sidecar** that pre-loads model and compiles shaders on startup
+- **Keep-alive loop** to prevent model unloading
+- **32K context window** for extended conversations and COT reasoning
+- **Chat frontend** with rolling context management and auto-summarization
 - Optimized for shared memory iGPU configurations
 - Pre-configured for GPT-OSS 120B model
 - OpenShift/Kubernetes ready with Kustomize
 
 ## Performance (AMD Radeon 8060S / Strix Halo)
 
-| Model | Prefill | Decode | VRAM Usage | Initial Load |
-|-------|---------|--------|------------|---------------|
-| GPT-OSS 120B (MXFP4) | ~300-450 tok/s | ~36-38 tok/s | ~61 GiB | ~7-8 min |
-| GPT-OSS 20B (MXFP4) | ~500 tok/s | ~58 tok/s | ~13 GiB | ~10 sec |
+| Model | Prefill | Decode | VRAM Usage | Context | Initial Load |
+|-------|---------|--------|------------|---------|---------------|
+| GPT-OSS 120B (MXFP4) | ~300-450 tok/s | ~34-38 tok/s | ~61 GiB | 32K | ~7-8 min |
+| GPT-OSS 20B (MXFP4) | ~500 tok/s | ~58 tok/s | ~13 GiB | 32K | ~10 sec |
 
-**Note:** The 120B model requires ~7-8 minutes for Vulkan shader compilation. The warmup sidecar triggers this automatically on pod startup, so subsequent user requests are fast (<1 second) while the model remains loaded (30 minute keep-alive).
+**Note:** The 120B model requires ~7-8 minutes for Vulkan shader compilation. The warmup sidecar triggers this automatically on pod startup and sends keep-alive requests every 20 minutes to prevent unloading. Subsequent user requests are fast (<1 second).
 
 ## Project Structure
 
 ```
+├── app/                     # Next.js chat frontend
+│   ├── src/
+│   │   ├── app/             # API routes and pages
+│   │   ├── components/      # React components (markdown renderer, etc.)
+│   │   └── lib/             # Core logic (context management, LLM client)
+│   ├── package.json
+│   └── README.md            # Frontend documentation
 ├── build-ollama-vulkan/     # Container image build files
 │   ├── Containerfile        # Ubuntu 24.04 + Mesa RADV + Ollama
 │   └── docker-entrypoint.sh # Startup script with auto model pull
 ├── .k8s/
 │   ├── vulkan/              # Vulkan backend deployment (recommended)
-│   │   ├── deployment.yaml  # Ollama pod with warmup sidecar & GPU resources
+│   │   ├── deployment.yaml  # Ollama pod with warmup sidecar + keep-alive
 │   │   ├── service.yaml     # ClusterIP service
 │   │   ├── route.yaml       # OpenShift route (edge TLS, 300s timeout)
 │   │   ├── pvc.yaml         # Model storage (250Gi NFS)
@@ -109,8 +119,8 @@ podman push quay.io/cnuland/vulkan-ollama:latest
 | `OLLAMA_KEEP_ALIVE` | `30m` | Keep model loaded between requests |
 | `OLLAMA_LOAD_TIMEOUT` | `20m` | Timeout for model loading (shader compilation) |
 | `OLLAMA_RUNNER_START_TIMEOUT` | `20m` | Timeout for runner startup |
-| `OLLAMA_CONTEXT_LENGTH` | `2048` | Context window size |
-| `OLLAMA_FLASH_ATTENTION` | `1` | Enable flash attention |
+| `OLLAMA_CONTEXT_LENGTH` | `32768` | Context window size (32K for COT) |
+| `OLLAMA_NUM_PARALLEL` | `1` | Concurrent requests (single user optimized) |
 
 ## Resource Requirements
 
@@ -131,6 +141,20 @@ podman push quay.io/cnuland/vulkan-ollama:latest
 For systems with shared CPU/GPU memory (like AMD Strix Halo), configure BIOS to allocate sufficient VRAM:
 - **120B model:** Set GPU memory to 64+ GiB
 - **20B model:** 16-32 GiB is sufficient
+
+## Chat Frontend
+
+The `app/` directory contains a Next.js chat frontend with:
+
+- **Streaming responses** with real-time token display
+- **Chain-of-thought (COT) support** - displays model reasoning in collapsible sections
+- **Rolling context window** - automatic summarization when context fills up
+- **16K default output tokens** - allows verbose reasoning for complex problems
+- **LaTeX math rendering** via KaTeX
+- **Syntax highlighting** via highlight.js
+- Session management, document attachments, and prompt presets
+
+See `app/README.md` for deployment instructions.
 
 ## References
 

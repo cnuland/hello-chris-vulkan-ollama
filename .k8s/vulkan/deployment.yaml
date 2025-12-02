@@ -36,12 +36,18 @@ spec:
               echo "Ollama is ready, triggering model warmup..."
               curl -sS -X POST http://localhost:11434/api/generate \
                 -H 'Content-Type: application/json' \
-                -d '{"model":"gpt-oss:120b","prompt":"Hello","stream":false}' &
-              echo "Warmup request sent, model loading in background"
-              # Keep container running and periodically check model status
+                -d '{"model":"gpt-oss:120b","prompt":"Hello","stream":false}'
+              echo "Model warmup complete! Starting keep-alive loop..."
+              # Keep model warm by sending a generate request every 20 minutes
+              # (model keep-alive is 30 min, so 20 min interval ensures it stays loaded)
               while true; do
-                sleep 300
-                curl -sS http://localhost:11434/api/tags >/dev/null 2>&1 || true
+                sleep 1200
+                echo "Sending keep-alive request..."
+                curl -sS -X POST http://localhost:11434/api/generate \
+                  -H 'Content-Type: application/json' \
+                  -d '{"model":"gpt-oss:120b","prompt":"ping","stream":false}' \
+                  --max-time 120 || echo "Keep-alive request failed"
+                echo "Keep-alive complete at $(date)"
               done
         # Main Ollama container
         - name: ollama
@@ -82,9 +88,9 @@ spec:
             # Performance tuning for MoE models
             - name: OLLAMA_NUM_PARALLEL
               value: "1"
-            # Reduce context to speed up inference
+            # Context length for longer conversations and COT reasoning
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "2048"
+              value: "32768"
           ports:
             - containerPort: 11434
               name: http

@@ -5,7 +5,9 @@ This directory contains a minimal Kustomize stack to deploy an Ollama server usi
 ## What's included
 - Deployment using the custom image: `quay.io/cnuland/vulkan-ollama:latest`
 - **Warmup sidecar** that triggers model loading immediately on pod startup
+- **Keep-alive loop** in the sidecar to prevent model unloading
 - Vulkan backend enabled via env (`OLLAMA_VULKAN=1`)
+- **32K context window** for extended conversations and chain-of-thought reasoning
 - Disk‑backed model store at `/models` (PVC with 250Gi)
 - Service (11434/TCP) and an OpenShift Route (edge TLS, 300s timeout)
 - Pod RAM: `requests: 8Gi`, `limits: 24Gi` (120B model requires ~1.1Gi CPU RAM for overflow)
@@ -13,12 +15,13 @@ This directory contains a minimal Kustomize stack to deploy an Ollama server usi
 
 ## Performance (AMD Radeon 8060S / Strix Halo)
 - **Prefill:** ~300-450 tok/s
-- **Decode:** ~36-38 tok/s
+- **Decode:** ~34-38 tok/s
 - **VRAM usage:** ~61 GiB (MXFP4 quantization)
+- **Context window:** 32K tokens
 - **Initial load time:** ~7-8 minutes (Vulkan shader compilation on first request)
-- **Subsequent requests:** <1 second (model stays loaded for 30 minutes)
+- **Subsequent requests:** <1 second (model stays loaded indefinitely via keep-alive)
 
-**Note:** The warmup sidecar automatically triggers Vulkan shader compilation on pod startup, so the first user request doesn't have to wait. Once loaded, the model stays in memory and responds quickly.
+**Note:** The warmup sidecar automatically triggers Vulkan shader compilation on pod startup, so the first user request doesn't have to wait. The sidecar also sends keep-alive requests every 20 minutes to prevent the model from being unloaded.
 
 ## References (source material used)
 - AMD OpenAI Day‑0 guidance (Vulkan + consumer Radeon/Ryzen AI):
@@ -87,30 +90,45 @@ oc rollout restart -n gpt-oss deploy/ollama-gpt-oss-120b
 - GPU scheduling: `amd.com/gpu: 1` ensures the pod lands on the AMD GPU node and `/dev/dri` is available to Vulkan.
 - Security: runs under OpenShift's restricted SCC; the image creates `/models` with 0777 so no explicit `fsGroup` is required.
 
-## Warmup Sidecar
+## Warmup Sidecar with Keep-Alive
 The deployment includes a warmup sidecar container that:
 1. Waits for the Ollama server to be ready
 2. Sends a generate request to trigger model loading and Vulkan shader compilation
 3. Runs in the background so the pod becomes ready quickly
-4. Periodically pings the API to keep the model warm
+4. **Sends keep-alive requests every 20 minutes** to prevent model unloading
 
-This ensures users don't have to wait 7-8 minutes on their first request.
+This ensures:
+- Users don't have to wait 7-8 minutes on their first request
+- The model stays loaded indefinitely (keep-alive is 30 min, requests sent every 20 min)
+- No cold starts during normal operation
 
 ## Performance tuning environment variables
 - `OLLAMA_KEEP_ALIVE=30m` - Keep model loaded for 30 minutes between requests
 - `OLLAMA_LOAD_TIMEOUT=20m` - Allow 20 minutes for model loading (Vulkan shader compilation)
 - `OLLAMA_RUNNER_START_TIMEOUT=20m` - Allow 20 minutes for runner startup
-- `OLLAMA_CONTEXT_LENGTH=2048` - Reduced context for faster initialization
+- `OLLAMA_CONTEXT_LENGTH=32768` - 32K context for extended conversations and COT reasoning
 - `OLLAMA_NUM_PARALLEL=1` - Single request at a time (optimized for single user)
 
 ## Model storage
 The deployment uses a 250Gi NFS PVC (`ollama-models`) for persistent model storage at `/models`. This is already configured in `pvc.yaml` and mounted in the deployment.
 
+## Chat Frontend
+
+A Next.js chat frontend is available in the `/app` directory. It provides:
+- Streaming chat with COT (chain-of-thought) rendering
+- **Rolling context window** with automatic summarization
+- **16K default output tokens** for verbose reasoning
+- LaTeX math rendering (KaTeX) and syntax highlighting
+- Session management, document attachments, and prompt presets
+
+See `/app/README.md` for deployment instructions.
+
 ## Troubleshooting
 - `ContainerCreating` for a long time: check image pull permissions and the `quay-pull` secret.
 - GPU not available / Pending: ensure no other pod is currently reserving `amd.com/gpu: 1` and the AMD device plugin is healthy.
 - System RAM OOMKilled: keep `/models` disk‑backed (not tmpfs), and consider lowering BIOS‑reserved VRAM from 96GiB to ~88GiB to give Linux more RAM.
-- **Warmup sidecar logs:** Check `oc logs -n gpt-oss <pod> -c warmup` to verify the sidecar triggered model loading.
+- **Warmup sidecar logs:** Check `oc logs -n gpt-oss <pod> -c warmup` to verify the sidecar triggered model loading and keep-alive.
 - **Model loading status:** Check `oc logs -n gpt-oss <pod> -c ollama` to see Vulkan shader compilation progress.
 - **First request times out (504):** Ensure the warmup sidecar is running and route timeout is set to 300s+. The 120B model requires ~7-8 minutes for Vulkan shader compilation.
-- **Subsequent requests are slow:** Check if the model was unloaded (`curl /api/ps`). Keep-alive is set to 30 minutes by default.
+- **Subsequent requests are slow:** Check if the model was unloaded (`curl /api/ps`). With the keep-alive sidecar, this should not happen.
+- **Response cuts off:** Increase `num_predict` in the API call or `defaultOutputTokens` in the frontend. The frontend defaults to 16K tokens.

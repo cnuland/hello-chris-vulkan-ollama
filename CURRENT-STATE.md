@@ -1,18 +1,22 @@
-# vLLM GPT-OSS Current State Documentation
+# GPT-OSS Ollama Deployment - Current State
 
-This document outlines how to recreate the current vLLM deployment running on the OpenShift SNO cluster (OKD) at `ironman.cjlabs.dev`.
+This document outlines how to recreate the current Ollama deployment running on the OpenShift SNO cluster (OKD) at `ironman.cjlabs.dev`.
+
+> **Note:** This deployment uses Ollama with Vulkan backend, not vLLM with ROCm. The vLLM configuration is preserved in `.k8s/rocm/` for reference.
 
 ## Overview
 
 | Component | Value |
 |-----------|-------|
-| **Deployment Name** | `vllm-gpt-oss-120b` |
-| **Namespace** | `gpt-oss` |
-| **Model** | `unsloth/gpt-oss-20b-BF16` |
-| **Container Image** | `quay.io/cnuland/vllm-gfx1151:rocm71_gfx115x` |
-| **vLLM Version** | `0.1.dev9064+g103696862` |
+| **Ollama Deployment** | `ollama-gpt-oss-120b` |
+| **Frontend Deployment** | `gpt-workspace` |
+| **Namespace (Ollama)** | `gpt-oss` |
+| **Namespace (Frontend)** | `gpt-workspace` |
+| **Model** | `gpt-oss:120b` (MXFP4 quantization) |
+| **Container Image** | `quay.io/cnuland/vulkan-ollama:latest` |
+| **Backend** | Vulkan (Mesa RADV) |
 | **GPU Architecture** | AMD Strix Halo 300 series (gfx1151 / RDNA 3.5) |
-| **ROCm Version** | 7.1 |
+| **Context Length** | 32K tokens |
 
 ## Prerequisites
 
@@ -21,30 +25,13 @@ This document outlines how to recreate the current vLLM deployment running on th
 oc login <cluster-api-url>
 ```
 
-### 2. Create Namespace
+### 2. Create Namespaces
 ```bash
-oc create namespace gpt-oss
-# Or apply the exported namespace YAML:
-oc apply -f .k8s/namespace.yaml
+oc create namespace gpt-oss        # For Ollama server
+oc create namespace gpt-workspace  # For chat frontend
 ```
 
-### 3. Create Required Secrets
-
-#### Hugging Face Token Secret
-Create a secret containing your Hugging Face API tokens:
-```bash
-oc create secret generic hf-token \
-  --from-literal=HUGGING_FACE_HUB_TOKEN=<your-hf-token> \
-  --from-literal=HF_TOKEN=<your-hf-token> \
-  -n gpt-oss
-```
-
-Or apply the exported secret (contains base64-encoded values):
-```bash
-oc apply -f .k8s/secret-hf-token.yaml
-```
-
-#### Quay Image Pull Secret
+### 3. Create Image Pull Secret
 ```bash
 oc create secret docker-registry quay-pull \
   --docker-server=quay.io \
@@ -53,174 +40,189 @@ oc create secret docker-registry quay-pull \
   -n gpt-oss
 ```
 
-Or apply the exported secret:
-```bash
-oc apply -f .k8s/secret-quay-pull.yaml
-```
-
-## Deployment Configuration
+## Ollama Deployment Configuration
 
 ### Container Image
 ```
-quay.io/cnuland/vllm-gfx1151:rocm71_gfx115x
+quay.io/cnuland/vulkan-ollama:latest
 ```
 
-This is a custom-built vLLM image for AMD ROCm targeting `gfx1151` architecture (Strix Halo 300 series).
-
-### vLLM Server Arguments
-```bash
-python3 -m vllm.entrypoints.openai.api_server \
-  --model=unsloth/gpt-oss-20b-BF16 \
-  --host=0.0.0.0 \
-  --port=8000 \
-  --tensor-parallel-size=1 \
-  --max-model-len=4096 \
-  --max-model-len=16384 \
-  --gpu-memory-utilization=0.85 \
-  --enforce-eager \
-  --disable-custom-all-reduce \
-  --trust-remote-code
-```
-
-**Note**: There are two `--max-model-len` arguments; the second one (16384) takes precedence.
+Custom image with Ubuntu 24.04, Mesa RADV drivers, and Ollama.
 
 ### Environment Variables
 
-#### Core vLLM Settings
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `HOME` | `/tmp/vllm-home` | vLLM home directory |
-| `HF_HOME` | `/model-cache` | Hugging Face cache location |
-| `VLLM_USE_MODELSCOPE` | `false` | Disable ModelScope |
-| `VLLM_USE_V1` | `1` | Enable vLLM V1 engine |
-| `VLLM_LOGGING_LEVEL` | `DEBUG` | Logging verbosity |
-
-#### ROCm/AMD GPU Settings
-| Variable | Value | Purpose |
-|----------|-------|---------|
-| `ROCM_PATH` | `/opt/rocm` | ROCm installation path |
-| `VLLM_TARGET_DEVICE` | `rocm` | Target AMD ROCm platform |
-| `VLLM_ROCM_USE_AITER` | `0` | AITER disabled |
-| `VLLM_ROCM_CUSTOM_PAGED_ATTN` | `0` | Custom paged attention disabled |
-| `VLLM_USE_TRITON_FLASH_ATTN` | `0` | Triton flash attention disabled |
-| `NCCL_P2P_DISABLE` | `1` | Disable NCCL P2P |
-| `AMD_SERIALIZE_KERNEL` | `3` | Kernel serialization level |
-| `HIP_LAUNCH_BLOCKING` | `1` | Synchronous kernel launches |
-| `HSA_ENABLE_SDMA` | `0` | Disable SDMA |
-
-#### Python Settings
-| Variable | Value | Purpose |
-|----------|-------|---------|
-| `PYTHONNOUSERSITE` | `1` | Ignore user site-packages |
-| `PYTHONPATH` | `/usr/local/lib/python3.12/dist-packages` | Python path |
-| `TORCHINDUCTOR_DISABLE` | `1` | Disable TorchInductor |
-| `TORCH_LOGS` | `+dynamo` | Torch Dynamo logging |
+| `OLLAMA_HOST` | `0.0.0.0` | Listen on all interfaces |
+| `OLLAMA_VULKAN` | `1` | Enable Vulkan backend |
+| `OLLAMA_MODELS` | `/models` | Model storage path |
+| `MODEL_NAME` | `gpt-oss:120b` | Model to load |
+| `OLLAMA_PULL_ON_START` | `1` | Auto-pull model on startup |
+| `HIP_VISIBLE_DEVICES` | `-1` | Disable ROCm/HIP |
+| `ROCR_VISIBLE_DEVICES` | `-1` | Disable ROCr |
+| `AMD_VULKAN_ICD` | `RADV` | Use Mesa RADV driver |
+| `GGML_VK_VISIBLE_DEVICES` | `0` | GPU device index |
+| `OLLAMA_KEEP_ALIVE` | `30m` | Keep model loaded 30 minutes |
+| `OLLAMA_LOAD_TIMEOUT` | `20m` | Allow 20 min for model loading |
+| `OLLAMA_RUNNER_START_TIMEOUT` | `20m` | Allow 20 min for runner startup |
+| `OLLAMA_NUM_PARALLEL` | `1` | Single request at a time |
+| `OLLAMA_CONTEXT_LENGTH` | `32768` | 32K context window |
 
 ### Resource Requirements
 ```yaml
 resources:
   requests:
-    memory: "16Gi"
+    memory: 8Gi
     amd.com/gpu: "1"
   limits:
-    memory: "32Gi"
+    memory: 24Gi
     amd.com/gpu: "1"
 ```
 
 ### Volume Mounts
-| Volume | Type | Mount Path | Size Limit |
-|--------|------|------------|------------|
-| `model-cache` | emptyDir | `/model-cache` | 200Gi |
-| `shm` | emptyDir (Memory) | `/dev/shm` | 16Gi |
+| Volume | Type | Mount Path | Size |
+|--------|------|------------|------|
+| `models` | PVC (NFS) | `/models` | 250Gi |
 
-**Important**: Model is downloaded fresh on each pod restart since `emptyDir` is used.
+**Note**: Model is persisted across pod restarts via PVC.
 
-## Deploy the Application
+### Warmup Sidecar
+The deployment includes a warmup sidecar that:
+1. Waits for Ollama server to be ready
+2. Triggers model loading and Vulkan shader compilation
+3. Sends keep-alive requests every 20 minutes to prevent unloading
 
-### Apply All Resources
+## Deploy Ollama
+
 ```bash
-# Apply in order
-oc apply -f .k8s/namespace.yaml
-oc apply -f .k8s/secret-hf-token.yaml
-oc apply -f .k8s/secret-quay-pull.yaml
-oc apply -f .k8s/deployment.yaml
-oc apply -f .k8s/service.yaml
-oc apply -f .k8s/route.yaml
+# Deploy with Kustomize
+oc apply -k .k8s/vulkan
+
+# Wait for pod to be ready
+oc get pods -n gpt-oss -l app=ollama-gpt-oss-120b -w
 ```
 
-### Or Use Kustomize
-Create a `kustomization.yaml` in the `.k8s` directory:
-```yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - namespace.yaml
-  - secret-hf-token.yaml
-  - secret-quay-pull.yaml
-  - deployment.yaml
-  - service.yaml
-  - route.yaml
-```
+## Chat Frontend Configuration
 
-Then apply:
+### Build and Deploy
 ```bash
-oc apply -k .k8s/
+# Build from local directory
+oc start-build gpt-workspace --from-dir=./app --follow -n gpt-workspace
+
+# Set environment variables
+oc set env deployment/gpt-workspace \
+  OLLAMA_API_BASE=http://ollama-gpt-oss-120b.gpt-oss.svc:11434 \
+  DATA_DIR=/tmp/data \
+  -n gpt-workspace
 ```
+
+### Frontend Features
+- Streaming chat with COT (chain-of-thought) rendering
+- Rolling context window with automatic summarization
+- 16K default output tokens for verbose reasoning
+- LaTeX math rendering (KaTeX) and syntax highlighting
+- Session management, document attachments, prompt presets
 
 ## Service Exposure
 
-### Internal Service
-- **Name**: `vllm-gpt-oss-120b`
-- **Port**: 8000
+### Ollama Internal Service
+- **Name**: `ollama-gpt-oss-120b`
+- **Port**: 11434
 - **Type**: ClusterIP
 
-### External Route
-- **URL**: `https://vllm-gpt-oss-120b-gpt-oss.apps.ironman.cjlabs.dev`
-- **TLS Termination**: Edge with Redirect
+### Ollama External Route
+- **URL**: `https://ollama-gpt-oss-120b-gpt-oss.apps.ironman.cjlabs.dev`
+- **TLS Termination**: Edge
+- **Timeout**: 300s (for model loading)
+
+### Frontend Route
+- **URL**: `https://gpt-workspace-gpt-workspace.apps.ironman.cjlabs.dev`
 
 ## Verify Deployment
 
 ### Check Pod Status
 ```bash
-oc get pods -n gpt-oss -l app=vllm-gpt-oss-120b
+# Ollama
+oc get pods -n gpt-oss -l app=ollama-gpt-oss-120b
+
+# Frontend
+oc get pods -n gpt-workspace
 ```
 
 ### Check Logs
 ```bash
-oc logs -f deployment/vllm-gpt-oss-120b -n gpt-oss
+# Ollama main container
+oc logs -n gpt-oss deployment/ollama-gpt-oss-120b -c ollama
+
+# Warmup sidecar
+oc logs -n gpt-oss deployment/ollama-gpt-oss-120b -c warmup
 ```
 
-### Test API Endpoint
+### Test API Endpoints
 ```bash
-curl -s https://vllm-gpt-oss-120b-gpt-oss.apps.ironman.cjlabs.dev/v1/models
+# Check version
+curl -sS https://ollama-gpt-oss-120b-gpt-oss.apps.ironman.cjlabs.dev/api/version
+
+# List models
+curl -sS https://ollama-gpt-oss-120b-gpt-oss.apps.ironman.cjlabs.dev/api/tags | jq .
+
+# Check loaded model
+curl -sS https://ollama-gpt-oss-120b-gpt-oss.apps.ironman.cjlabs.dev/api/ps | jq .
+
+# Generate text
+curl -sS https://ollama-gpt-oss-120b-gpt-oss.apps.ironman.cjlabs.dev/api/generate \
+  -d '{"model":"gpt-oss:120b","prompt":"Hello!","stream":false}' | jq -r .response
 ```
 
-## Model Loading Statistics (from logs)
+## Performance Metrics
 
 | Metric | Value |
 |--------|-------|
-| Model Size | 39.24 GiB |
-| Download Time | ~230 seconds |
-| Load Time | ~239 seconds |
-| Initial Free GPU Memory | 62.39 GiB |
-| Available KV Cache | 11.83 GiB |
-| Max KV Cache Tokens | 258,368 |
-| Max Concurrency (16K tokens) | ~27.82x |
-
-## Known Issues
-
-1. **Naming Mismatch**: Deployment named `vllm-gpt-oss-120b` but runs 20B model
-2. **Duplicate max-model-len**: Two arguments specified (4096 and 16384)
-3. **No Persistent Storage**: Model re-downloads on pod restart
-4. **Missing MoE Config**: Warning about missing MoE config for AMD Radeon Graphics
+| Model Size | ~65 GiB (MXFP4) |
+| VRAM Usage | ~61 GiB |
+| CPU RAM Overflow | ~1.1 GiB |
+| Prefill Speed | ~300-450 tok/s |
+| Decode Speed | ~34-38 tok/s |
+| Context Window | 32K tokens |
+| Initial Load Time | ~7-8 minutes (shader compilation) |
+| Subsequent Requests | <1 second |
 
 ## File Structure
 ```
-.k8s/
-├── namespace.yaml
-├── deployment.yaml
-├── service.yaml
-├── route.yaml
-├── secret-hf-token.yaml
-└── secret-quay-pull.yaml
+.
+├── app/                         # Next.js chat frontend
+│   ├── src/lib/tokens.ts        # Context configuration
+│   ├── src/lib/context-manager.ts
+│   └── README.md
+├── .k8s/
+│   ├── vulkan/                  # Current deployment (recommended)
+│   │   ├── deployment.yaml
+│   │   ├── service.yaml
+│   │   ├── route.yaml
+│   │   ├── pvc.yaml
+│   │   └── kustomization.yaml
+│   └── rocm/                    # Legacy vLLM deployment
+└── build-ollama-vulkan/         # Container image build
 ```
+
+## Troubleshooting
+
+### Model takes too long to load
+- First load requires ~7-8 minutes for Vulkan shader compilation
+- Check warmup sidecar logs: `oc logs -n gpt-oss <pod> -c warmup`
+- Ensure route timeout is 300s+
+
+### Response cuts off mid-generation
+- Increase `num_predict` in API call
+- Frontend defaults to 16K tokens (`defaultOutputTokens` in `tokens.ts`)
+- For complex reasoning, may need 24K-32K tokens
+
+### Model keeps unloading
+- Check warmup sidecar is running keep-alive loop
+- Verify `OLLAMA_KEEP_ALIVE=30m` is set
+- Sidecar sends requests every 20 minutes
+
+### Context exceeded errors
+- Frontend has automatic summarization at 80% capacity
+- Check `[ContextManager]` logs in frontend
+- Verify `OLLAMA_CONTEXT_LENGTH=32768`
