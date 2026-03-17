@@ -3,7 +3,7 @@
   "wake_word": "Hey Shadowbot",
   "author": "Chris Nuland",
   "website": "",
-  "model": "hey_shadowbot.tflite",
+  "model": "https://github.com/cnuland/hello-chris-vulkan-ollama/raw/main/models/hey_shadowbot_mww/hey_shadowbot.tflite",
   "trained_languages": ["en"],
   "version": 2,
   "micro": {
