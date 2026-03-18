@@ -4,7 +4,9 @@
   "author": "Chris Nuland",
   "website": "https://github.com/cnuland/hello-chris-vulkan-ollama",
   "model": "hey_shadowbot.tflite",
-  "trained_languages": ["en"],
+  "trained_languages": [
+    "en"
+  ],
   "version": 2,
   "micro": {
     "probability_cutoff": 0.5,
